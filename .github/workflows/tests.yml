@@ -1,0 +1,219 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.3', '8.4', '8.5']
+        stability: [prefer-stable]
+        mcp: ['^1.1']
+        include:
+          - php: '8.3'
+            stability: prefer-lowest
+            mcp: '^1.1'
+          # Umpire reads laravel/mcp internals (Server::$tools, the handle() call), so a change
+          # on main shows up here before it ships.
+          - php: '8.4'
+            stability: prefer-stable
+            mcp: dev-main
+
+    name: PHP ${{ matrix.php }} - ${{ matrix.stability }} - mcp ${{ matrix.mcp }} - SQLite
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: pdo_sqlite
+          coverage: none
+
+      - name: Use laravel/mcp dev-main
+        if: matrix.mcp == 'dev-main'
+        run: composer require "laravel/mcp:dev-main as 1.1.99" --no-update --no-interaction
+
+      - name: Install dependencies
+        run: composer update --${{ matrix.stability }} --prefer-dist --no-interaction --no-progress
+
+      - name: Resolved versions
+        run: composer show | grep -E '^(laravel/(framework|mcp|passport|sanctum)|orchestra/testbench|pestphp/pest|symfony/uid) '
+
+      - name: Execute tests
+        run: vendor/bin/pest --parallel
+
+  # PostgreSQL aborts the caller's transaction after a failed insert, so only this job and the
+  # MySQL one catch the listeners' savepoints. Serial: parallel workers would share the database.
+  pgsql:
+    runs-on: ubuntu-latest
+    name: PHP 8.4 - prefer-stable - mcp ^1.1 - PostgreSQL 17
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: umpire_test
+        ports:
+          - 5432:5432
+        options: --health-cmd="pg_isready" --health-interval=10s --health-timeout=5s --health-retries=5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_pgsql
+          coverage: none
+
+      - name: Install dependencies
+        run: composer update --prefer-stable --prefer-dist --no-interaction --no-progress
+
+      - name: Execute tests
+        run: vendor/bin/pest
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: umpire_test
+          DB_USERNAME: postgres
+          DB_PASSWORD: postgres
+
+  mysql:
+    runs-on: ubuntu-latest
+    name: PHP 8.4 - prefer-stable - mcp ^1.1 - MySQL 9.7
+
+    services:
+      mysql:
+        image: mysql:9.7
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: yes
+          MYSQL_DATABASE: umpire_test
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_mysql
+          coverage: none
+
+      - name: Install dependencies
+        run: composer update --prefer-stable --prefer-dist --no-interaction --no-progress
+
+      - name: Execute tests
+        run: vendor/bin/pest
+        env:
+          DB_CONNECTION: mysql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_DATABASE: umpire_test
+          DB_USERNAME: root
+          DB_PASSWORD: ''
+
+  # Passport is a dev dependency only. --fail-on-skipped: these tests skip when Passport is
+  # installed, so a skip here means the removal did not happen.
+  without-passport:
+    runs-on: ubuntu-latest
+    name: PHP 8.4 - prefer-stable - mcp ^1.1 - SQLite - without Passport
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_sqlite
+          coverage: none
+
+      - name: Install dependencies without Passport
+        run: |
+          composer remove laravel/passport --dev --no-update --no-interaction
+          composer update --prefer-stable --prefer-dist --no-interaction --no-progress
+
+      - name: Execute tests
+        run: vendor/bin/pest tests/WithoutPassport --fail-on-skipped
+
+  static:
+    runs-on: ubuntu-latest
+    name: Static analysis - PHP 8.4
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      - name: Install dependencies
+        run: composer update --prefer-stable --prefer-dist --no-interaction --no-progress
+
+      - name: Larastan
+        run: composer analyse
+
+      - name: Pint
+        run: composer lint:check
+
+      - name: Type coverage
+        run: composer test:types
+
+  # A release is GitHub's archive of the tag, so .gitattributes decides what Packagist ships.
+  shipped-files:
+    runs-on: ubuntu-latest
+    name: Shipped files
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Check the release archive
+        run: |
+          files=$(git archive HEAD | tar -t)
+          echo "$files"
+          unexpected=$(echo "$files" | grep -v -E '^(src|config|database)/|^(composer\.json|README\.md|LICENSE\.md|CHANGELOG\.md)$' || true)
+          if [ -n "$unexpected" ]; then
+            echo "::error::The release archive ships files outside the package:"
+            echo "$unexpected"
+            exit 1
+          fi
+          for required in composer.json src/UmpireServiceProvider.php config/umpire.php; do
+            echo "$files" | grep -qx "$required" || { echo "::error::The release archive is missing $required"; exit 1; }
+          done
+
+  # The one check a branch ruleset should require. `if: always()` is load-bearing: a skipped
+  # job reports success, so a failed test run would otherwise let the merge through.
+  ci-passed:
+    name: CI passed
+    if: always()
+    needs: [tests, pgsql, mysql, without-passport, static, shipped-files]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail unless every job succeeded
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: exit 1

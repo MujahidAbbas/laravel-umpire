@@ -8,8 +8,10 @@ use Laravel\Sanctum\NewAccessToken;
 use MujahidAbbas\Umpire\Tests\Fixtures\Models\Agent;
 use MujahidAbbas\Umpire\Tests\Fixtures\Models\SanctumAgent;
 use MujahidAbbas\Umpire\Tests\TestCase;
+use MujahidAbbas\Umpire\Tests\WithoutPassportTestCase;
 
 uses(TestCase::class)->in(__DIR__.'/Feature');
+uses(WithoutPassportTestCase::class)->in(__DIR__.'/WithoutPassport');
 
 dataset('guards', [
     'Passport' => 'passport',

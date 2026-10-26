@@ -66,14 +66,28 @@ abstract class TestCase extends Orchestra
         }
     }
 
+    /**
+     * Registered with the migrator itself: once a non-memory database (PostgreSQL, MySQL) has
+     * been refreshed, Testbench's loadMigrationsFrom() hands a list to migrate as arguments.
+     */
     protected function defineDatabaseMigrations(): void
     {
-        $this->loadMigrationsFrom([
+        foreach ($this->migrationPaths() as $path) {
+            $this->app['migrator']->path($path);
+        }
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function migrationPaths(): array
+    {
+        return [
             default_migration_path(),
             dirname(__DIR__).'/database/migrations',
             dirname(__DIR__).'/vendor/laravel/passport/database/migrations',
             dirname(__DIR__).'/vendor/laravel/sanctum/database/migrations',
-        ]);
+        ];
     }
 
     protected function defineRoutes($router): void
