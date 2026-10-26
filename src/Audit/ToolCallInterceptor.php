@@ -8,18 +8,23 @@ use BadMethodCallException;
 use Closure;
 use Generator;
 use Illuminate\Container\Container;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\ResponseFactory;
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\Tool;
-use MujahidAbbas\Umpire\Events\ToolCallFailed;
-use MujahidAbbas\Umpire\Events\ToolCallStarting;
-use MujahidAbbas\Umpire\Events\ToolCallSucceeded;
+use MujahidAbbas\Umpire\Attributes\Redact;
+use MujahidAbbas\Umpire\Events\InvokingTool;
+use MujahidAbbas\Umpire\Events\ToolFailed;
+use MujahidAbbas\Umpire\Events\ToolInvoked;
 use MujahidAbbas\Umpire\Exceptions\ToolCannotBeAudited;
+use MujahidAbbas\Umpire\Exceptions\ToolStreamAbandoned;
+use MujahidAbbas\Umpire\Support\Attributes;
 use ReflectionProperty;
-use RuntimeException;
 use Throwable;
 use Traversable;
 use WeakMap;
@@ -29,6 +34,8 @@ use WeakMap;
  * search (execute_tools) are both observed: core invokes both through Container::call().
  *
  * @internal
+ *
+ * @phpstan-type ToolCall array{id: string, tool: string, arguments: array<string, mixed>, user: ?Authenticatable, clientId: ?string, tokenId: ?string}
  */
 class ToolCallInterceptor
 {
@@ -69,16 +76,10 @@ class ToolCallInterceptor
      */
     public function intercept(Container $app): void
     {
-        $server = $this->servers[$app] ?? null;
-
-        if ($server === null) {
-            return;
-        }
-
         $bound = $this->bound[$app] ?? [];
 
         $pending = array_filter(
-            $this->toolClasses($server),
+            $this->toolClassesFor($app),
             fn (string $class): bool => ! (isset($bound[$class]) && $app->hasMethodBinding("{$class}@handle")),
         );
 
@@ -95,6 +96,19 @@ class ToolCallInterceptor
         }
 
         $this->bound[$app] = $bound;
+    }
+
+    /**
+     * The tool classes of the server that will handle the current request, including tools added
+     * in boot(), or none when no server has been resolved in this container.
+     *
+     * @return list<string>
+     */
+    public function toolClassesFor(Container $app): array
+    {
+        $server = $this->servers[$app] ?? null;
+
+        return $server === null ? [] : $this->toolClasses($server);
     }
 
     /**
@@ -121,12 +135,11 @@ class ToolCallInterceptor
     protected function call(Tool $tool, Container $app): mixed
     {
         $events = $app->make(Dispatcher::class);
-        $name = $tool->name();
 
         // Captured now: core forgets mcp.request before a streamed response is iterated.
-        $arguments = $app->bound('mcp.request') ? $this->request($app)->all() : [];
+        $call = $this->describe($tool, $app);
 
-        $events->dispatch(new ToolCallStarting($name, $arguments));
+        $events->dispatch(new InvokingTool(...$call));
 
         $startedAt = hrtime(true);
 
@@ -140,16 +153,16 @@ class ToolCallInterceptor
             // A closure, not [$tool, 'handle'], so Container::call() skips this method binding.
             $result = $app->call(Closure::fromCallable($handle));
         } catch (Throwable $exception) {
-            $events->dispatch(new ToolCallFailed($name, $arguments, $this->elapsedMs($startedAt), $exception));
+            $events->dispatch(new ToolFailed(...$call, durationMs: $this->elapsedMs($startedAt), exception: $exception));
 
             throw $exception;
         }
 
         if ($result instanceof Traversable) {
-            return $this->stream($result, $events, $name, $arguments, $startedAt);
+            return $this->stream($result, $events, $call, $startedAt);
         }
 
-        $events->dispatch(new ToolCallSucceeded($name, $arguments, $this->elapsedMs($startedAt), $this->isError($result)));
+        $events->dispatch(new ToolInvoked(...$call, durationMs: $this->elapsedMs($startedAt), isError: $this->isError($result)));
 
         return $result;
     }
@@ -158,10 +171,10 @@ class ToolCallInterceptor
      * Pass a streamed response through untouched, settling the call once it is exhausted.
      *
      * @param  Traversable<mixed, mixed>  $responses
-     * @param  array<string, mixed>  $arguments
+     * @param  ToolCall  $call
      * @return Generator<mixed, mixed, mixed, mixed>
      */
-    protected function stream(Traversable $responses, Dispatcher $events, string $name, array $arguments, int $startedAt): Generator
+    protected function stream(Traversable $responses, Dispatcher $events, array $call, int $startedAt): Generator
     {
         $isError = false;
         $completed = false;
@@ -178,21 +191,115 @@ class ToolCallInterceptor
         } catch (Throwable $exception) {
             $failed = true;
 
-            $events->dispatch(new ToolCallFailed($name, $arguments, $this->elapsedMs($startedAt), $exception));
+            $events->dispatch(new ToolFailed(...$call, durationMs: $this->elapsedMs($startedAt), exception: $exception));
 
             throw $exception;
         } finally {
             if (! $completed && ! $failed) {
-                $events->dispatch(new ToolCallFailed(
-                    $name, $arguments, $this->elapsedMs($startedAt),
-                    new RuntimeException('The tool stream was abandoned before it finished.'),
-                ));
+                $events->dispatch(new ToolFailed(...$call, durationMs: $this->elapsedMs($startedAt), exception: ToolStreamAbandoned::make()));
             }
         }
 
-        $events->dispatch(new ToolCallSucceeded($name, $arguments, $this->elapsedMs($startedAt), $isError));
+        $events->dispatch(new ToolInvoked(...$call, durationMs: $this->elapsedMs($startedAt), isError: $isError));
 
         return $responses instanceof Generator ? $responses->getReturn() : null;
+    }
+
+    /**
+     * The payload every event of this call shares.
+     *
+     * @return ToolCall
+     */
+    protected function describe(Tool $tool, Container $app): array
+    {
+        $request = $app->bound('mcp.request') ? $this->request($app) : null;
+        $user = $request?->user();
+
+        [$clientId, $tokenId] = $this->credentials($user);
+
+        return [
+            'id' => (string) Str::ulid(),
+            'tool' => $tool->name(),
+            'arguments' => $this->redact($request?->all() ?? [], $this->redactedKeys($tool, $app)),
+            'user' => $user,
+            'clientId' => $clientId,
+            'tokenId' => $tokenId,
+        ];
+    }
+
+    /**
+     * The client and token the user authenticated with, read without requiring Passport or Sanctum.
+     *
+     * @return array{?string, ?string}
+     */
+    protected function credentials(?Authenticatable $user): array
+    {
+        if ($user === null) {
+            return [null, null];
+        }
+
+        $traits = class_uses_recursive($user);
+
+        // Passport keeps the access token's attributes: oauth_client_id, oauth_access_token_id.
+        if (isset($traits['Laravel\Passport\HasApiTokens']) && method_exists($user, 'token')) {
+            $token = $user->token();
+
+            return [$this->identifier($token->oauth_client_id ?? null), $this->identifier($token->oauth_access_token_id ?? null)];
+        }
+
+        // Sanctum: the personal access token is both client and token. Cookie auth has neither.
+        if (isset($traits['Laravel\Sanctum\HasApiTokens']) && method_exists($user, 'currentAccessToken')) {
+            $token = $user->currentAccessToken();
+            $id = $token instanceof Model ? $this->identifier($token->getKey()) : null;
+
+            return [$id, $id];
+        }
+
+        return [null, null];
+    }
+
+    protected function identifier(mixed $value): ?string
+    {
+        return is_string($value) || is_int($value) ? (string) $value : null;
+    }
+
+    /**
+     * The global umpire.redact keys plus the tool's #[Redact] keys, lower-cased.
+     *
+     * @return array<string, true>
+     */
+    protected function redactedKeys(Tool $tool, Container $app): array
+    {
+        /** @var list<string> $keys */
+        $keys = (array) $app->make('config')->get('umpire.redact', []);
+
+        foreach (Attributes::all($tool, Redact::class) as $redact) {
+            array_push($keys, ...$redact->keys);
+        }
+
+        return array_fill_keys(array_map(strtolower(...), $keys), true);
+    }
+
+    /**
+     * Replace the value of every matching key, at any depth.
+     *
+     * @template TKey of array-key
+     *
+     * @param  array<TKey, mixed>  $arguments
+     * @param  array<string, true>  $keys
+     * @return array<TKey, mixed>
+     */
+    protected function redact(array $arguments, array $keys): array
+    {
+        foreach ($arguments as $key => $value) {
+            if (isset($keys[strtolower((string) $key)])) {
+                $arguments[$key] = '[redacted]';
+            } elseif (is_array($value)) {
+                $arguments[$key] = $this->redact($value, $keys);
+            }
+        }
+
+        return $arguments;
     }
 
     protected function isError(mixed $result): bool

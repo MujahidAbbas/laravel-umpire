@@ -21,15 +21,20 @@
     ],
     "require": {
         "php": "^8.3",
+        "illuminate/console": "^13.0",
         "illuminate/container": "^13.0",
         "illuminate/contracts": "^13.0",
+        "illuminate/database": "^13.0",
         "illuminate/support": "^13.0",
-        "laravel/mcp": "^1.1"
+        "laravel/mcp": "^1.1",
+        "symfony/uid": "^7.4|^8.0"
     },
     "require-dev": {
         "larastan/larastan": "^3.9",
         "laravel/pao": "^1.0",
+        "laravel/passport": "^13.10",
         "laravel/pint": "^1.29",
+        "laravel/sanctum": "^4.3",
         "orchestra/testbench": "^11.0",
         "pestphp/pest": "^4.6|^5.0",
         "pestphp/pest-plugin-laravel": "^4.1|^5.0",

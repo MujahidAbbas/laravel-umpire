@@ -15,6 +15,8 @@ use MujahidAbbas\Umpire\Tests\Fixtures\Tools\LookupTicketTool;
 use MujahidAbbas\Umpire\Tests\Fixtures\Tools\SummarizeQueueTool;
 use MujahidAbbas\Umpire\Tests\Fixtures\Tools\TicketStatsTool;
 use MujahidAbbas\Umpire\Tests\Fixtures\Tools\TriageQueueTool;
+use MujahidAbbas\Umpire\Tests\Fixtures\Tools\VerifyCustomerTool;
+use MujahidAbbas\Umpire\Tests\Fixtures\Tools\VerifyVipCustomerTool;
 
 #[Name('Helpdesk')]
 class HelpdeskServer extends Server
@@ -29,5 +31,7 @@ class HelpdeskServer extends Server
         TriageQueueTool::class,
         ListAgentsTool::class,
         TicketStatsTool::class,
+        VerifyCustomerTool::class,
+        VerifyVipCustomerTool::class,
     ];
 }

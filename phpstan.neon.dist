@@ -2,4 +2,6 @@ parameters:
     level: 7
     paths:
         - src
+        # Fixtures are analysed so the AuthorizesWithGate trait is checked in the tools that use it.
+        - tests/Fixtures
     tmpDir: build/phpstan

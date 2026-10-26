@@ -5,9 +5,9 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Exceptions;
 use Laravel\Mcp\Response;
-use MujahidAbbas\Umpire\Events\ToolCallFailed;
-use MujahidAbbas\Umpire\Events\ToolCallStarting;
-use MujahidAbbas\Umpire\Events\ToolCallSucceeded;
+use MujahidAbbas\Umpire\Events\InvokingTool;
+use MujahidAbbas\Umpire\Events\ToolFailed;
+use MujahidAbbas\Umpire\Events\ToolInvoked;
 use MujahidAbbas\Umpire\Exceptions\ToolCannotBeAudited;
 use MujahidAbbas\Umpire\Tests\Fixtures\Servers\HelpdeskServer;
 use MujahidAbbas\Umpire\Tests\Fixtures\Tools\CreateTicketTool;
@@ -18,7 +18,7 @@ use MujahidAbbas\Umpire\Tests\Fixtures\Tools\LookupTicketTool;
 // than letting it run unrecorded.
 
 beforeEach(function (): void {
-    Event::fake([ToolCallStarting::class, ToolCallSucceeded::class, ToolCallFailed::class]);
+    Event::fake([InvokingTool::class, ToolInvoked::class, ToolFailed::class]);
 });
 
 function bindLookupTicketInTheApp(): void
@@ -53,14 +53,14 @@ it('answers a refused call over HTTP with a JSON-RPC error and reports the reaso
     ])->assertStatus(500)->assertJsonPath('error.code', -32603);
 
     Exceptions::assertReported(ToolCannotBeAudited::class);
-    Event::assertNotDispatched(ToolCallStarting::class);
+    Event::assertNotDispatched(InvokingTool::class);
 });
 
 it('does not mistake its own binding for the app\'s on later calls', function (): void {
     HelpdeskServer::tool(LookupTicketTool::class)->assertSee('lookup-ticket done');
     HelpdeskServer::tool(LookupTicketTool::class)->assertSee('lookup-ticket done');
 
-    Event::assertDispatchedTimes(ToolCallSucceeded::class, 2);
+    Event::assertDispatchedTimes(ToolInvoked::class, 2);
 });
 
 it('cannot see a binding the app makes after Umpire bound the tool (documented limitation)', function (): void {
@@ -70,5 +70,5 @@ it('cannot see a binding the app makes after Umpire bound the tool (documented l
 
     HelpdeskServer::tool(LookupTicketTool::class)->assertSee('Handled by the app binding.');
 
-    Event::assertDispatchedTimes(ToolCallSucceeded::class, 1);
+    Event::assertDispatchedTimes(ToolInvoked::class, 1);
 });
