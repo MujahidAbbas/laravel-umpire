@@ -1,0 +1,63 @@
+name: Bug Report
+description: Report something in Umpire that is broken.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Questions and ideas go to [Discussions](https://github.com/MujahidAbbas/laravel-umpire/discussions). Never report a vulnerability here: see the [security policy](https://github.com/MujahidAbbas/laravel-umpire/security/policy).
+  - type: input
+    attributes:
+      label: Umpire version
+      description: "`composer show mujahidabbas/laravel-umpire`"
+      placeholder: 1.0.0
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: laravel/mcp version
+      description: "`composer show laravel/mcp`"
+      placeholder: 1.1.2
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Laravel version
+      placeholder: 13.38.0
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: PHP version
+      placeholder: 8.4.14
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: Guard
+      description: How the MCP request is authenticated.
+      options:
+        - Passport
+        - Sanctum
+        - Other
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Database driver and version
+      description: If the audit table, the registration marker or `mcp:purge-clients` is involved.
+      placeholder: PostgreSQL 17
+    validations:
+      required: false
+  - type: textarea
+    attributes:
+      label: Description
+      description: What happened, and what you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Steps to reproduce
+      description: The smallest tool or server that shows the problem, and the request that triggers it.
+    validations:
+      required: true

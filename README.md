@@ -351,7 +351,8 @@ setting up OAuth for an MCP server:
 
 ## Support
 
-Questions and bug reports go to [GitHub Discussions](https://github.com/MujahidAbbas/laravel-umpire/discussions).
+Report bugs in [Issues](https://github.com/MujahidAbbas/laravel-umpire/issues), and take
+questions and ideas to [GitHub Discussions](https://github.com/MujahidAbbas/laravel-umpire/discussions).
 Read [CONTRIBUTING](.github/CONTRIBUTING.md) before opening a pull request, and report
 vulnerabilities as described in [SECURITY](.github/SECURITY.md).
 

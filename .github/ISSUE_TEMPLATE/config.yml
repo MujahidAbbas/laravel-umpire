@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a question
+    url: https://github.com/MujahidAbbas/laravel-umpire/discussions/new?category=q-a
+    about: Ask for help using Umpire
+  - name: Suggest an idea
+    url: https://github.com/MujahidAbbas/laravel-umpire/discussions/new?category=ideas
+    about: Share an idea for a new feature
+  - name: Report a vulnerability
+    url: https://github.com/MujahidAbbas/laravel-umpire/security/policy
+    about: Report security problems privately, never in an issue

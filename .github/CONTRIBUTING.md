@@ -2,18 +2,22 @@
 
 Thanks for helping with Umpire for Laravel.
 
-## Start with a discussion
+## Bugs, questions and ideas
 
-Questions, bug reports and ideas go to
-[GitHub Discussions](https://github.com/MujahidAbbas/laravel-umpire/discussions). Issues are
-turned off.
+Report bugs in [Issues](https://github.com/MujahidAbbas/laravel-umpire/issues/new/choose), with
+the bug report form. A good bug report names the Umpire, laravel/mcp, Laravel and PHP versions,
+the guard (Passport, Sanctum or other), and the smallest tool or server that shows the problem.
 
-Open a discussion before you open a pull request, and wait until the change is agreed there. A
-pull request without one may be closed. This saves you from building something that does not
-fit the package. Security problems never go to a discussion: see [SECURITY](SECURITY.md).
+Questions and ideas go to
+[GitHub Discussions](https://github.com/MujahidAbbas/laravel-umpire/discussions).
 
-A good bug report names the Umpire, laravel/mcp, Laravel and PHP versions, the guard (Passport,
-Sanctum or other), and the smallest tool or server that shows the problem.
+Security problems never go to an issue or a discussion: see [SECURITY](SECURITY.md).
+
+## Before you open a pull request
+
+Open an issue (for a bug) or a discussion (for anything else) before you open a pull request,
+and wait until the change is agreed there. A pull request without one may be closed. This saves you from building something that does not
+fit the package.
 
 ## AI disclosure
 
