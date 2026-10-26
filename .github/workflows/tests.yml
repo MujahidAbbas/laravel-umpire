@@ -196,13 +196,14 @@ jobs:
         run: |
           files=$(git archive HEAD | tar -t)
           echo "$files"
-          unexpected=$(echo "$files" | grep -v -E '^(src|config|database)/|^(composer\.json|README\.md|LICENSE\.md|CHANGELOG\.md)$' || true)
+          unexpected=$(echo "$files" | grep -v -E '^(src|config|database|resources)/|^(composer\.json|README\.md|LICENSE\.md|CHANGELOG\.md)$' || true)
           if [ -n "$unexpected" ]; then
             echo "::error::The release archive ships files outside the package:"
             echo "$unexpected"
             exit 1
           fi
-          for required in composer.json src/UmpireServiceProvider.php config/umpire.php; do
+          # Boost reads resources/boost from the installed package, so the guideline and skill must ship.
+          for required in composer.json src/UmpireServiceProvider.php config/umpire.php resources/boost/guidelines/core.md resources/boost/skills/umpire-development/SKILL.md; do
             echo "$files" | grep -qx "$required" || { echo "::error::The release archive is missing $required"; exit 1; }
           done
 
