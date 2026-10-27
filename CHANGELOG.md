@@ -1,6 +1,8 @@
 # Release Notes
 
-## [Unreleased](https://github.com/MujahidAbbas/laravel-umpire/commits/main)
+## [Unreleased](https://github.com/MujahidAbbas/laravel-umpire/compare/v1.0.0...main)
+
+## v1.0.0 - 2026-10-27
 
 The first release.
 
