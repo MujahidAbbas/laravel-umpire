@@ -1,6 +1,8 @@
 # Release Notes
 
-## [Unreleased](https://github.com/MujahidAbbas/laravel-umpire/compare/v1.0.0...main)
+## [Unreleased](https://github.com/MujahidAbbas/laravel-umpire/compare/v1.1.0...main)
+
+## [v1.1.0](https://github.com/MujahidAbbas/laravel-umpire/compare/v1.0.0...v1.1.0) - 2026-10-27
 
 - `#[Authorize]` and `AuthorizesWithGate` now protect resources, resource templates and prompts. A denied user does not see them listed, and `resources/read`, `prompts/get` and `completion/complete` fail with JSON-RPC `-32602` "not found".
 - The fail-closed check covers resources and prompts. One that carries `#[Authorize]` without enforcing it (the trait is missing, or it defines its own `shouldRegister()`) now throws `AuthorizationNotEnforced` on every request to its server. In v1.0.0 the attribute was ignored there, and the resource or prompt was served to every user.
