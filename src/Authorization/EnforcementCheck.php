@@ -11,9 +11,9 @@ use MujahidAbbas\Umpire\Support\Attributes;
 use ReflectionMethod;
 
 /**
- * Fails closed when a tool declares #[Authorize] but its shouldRegister() is not the one from
- * AuthorizesWithGate: laravel/mcp only calls shouldRegister(), so the attribute alone protects
- * nothing, and a tool's own shouldRegister() silently replaces the trait's.
+ * Fails closed when a tool, resource or prompt declares #[Authorize] but its shouldRegister() is
+ * not the one from AuthorizesWithGate: laravel/mcp only calls shouldRegister(), so the attribute
+ * alone protects nothing, and a class's own shouldRegister() silently replaces the trait's.
  *
  * @internal
  */

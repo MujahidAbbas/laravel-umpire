@@ -6,13 +6,15 @@ namespace MujahidAbbas\Umpire\Tests\Fixtures\Servers;
 
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\Attributes\Name;
+use Laravel\Mcp\Server\Prompt;
+use Laravel\Mcp\Server\Resource as McpResource;
 use Laravel\Mcp\Server\Tool;
 use Laravel\Mcp\Server\Tools\ToolSearch;
 use MujahidAbbas\Umpire\Tests\Fixtures\Tools\LookupTicketTool;
 
 /**
- * Adds the tool a test names in boot(), directly or inside a ToolSearch catalog. Tests reset the
- * static properties after each run.
+ * Adds the tool, resource or prompt a test names in boot(); the tool directly or inside a
+ * ToolSearch catalog. Tests reset the static properties after each run.
  */
 #[Name('Helpdesk misconfigured')]
 class MisconfiguredServer extends Server
@@ -24,12 +26,32 @@ class MisconfiguredServer extends Server
 
     public static bool $inCatalog = false;
 
+    /**
+     * Aliased: Pint reads a bare Resource in a docblock as PHP's resource type.
+     *
+     * @var McpResource|class-string<McpResource>|null
+     */
+    public static McpResource|string|null $resource = null;
+
+    /**
+     * @var class-string<Prompt>|null
+     */
+    public static ?string $prompt = null;
+
     protected array $tools = [
         LookupTicketTool::class,
     ];
 
     protected function boot(): void
     {
+        if (static::$resource !== null) {
+            $this->resources[] = static::$resource;
+        }
+
+        if (static::$prompt !== null) {
+            $this->prompts[] = static::$prompt;
+        }
+
         if (static::$tool === null) {
             return;
         }

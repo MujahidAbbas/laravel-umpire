@@ -11,9 +11,9 @@ use MujahidAbbas\Umpire\Attributes\Authorize;
 use MujahidAbbas\Umpire\Support\Attributes;
 
 /**
- * Enforces the tool's #[Authorize] attributes, including those declared on parent classes.
- * laravel/mcp asks shouldRegister() before it lists, searches or calls a tool; a tool the user
- * may not use is hidden, and calling it fails as if it did not exist.
+ * Enforces the #[Authorize] attributes of a tool, resource or prompt, including those declared on
+ * parent classes. laravel/mcp asks shouldRegister() before it lists, searches, calls, reads or gets
+ * one; one the user may not use is hidden, and using it fails as if it did not exist.
  */
 trait AuthorizesWithGate
 {

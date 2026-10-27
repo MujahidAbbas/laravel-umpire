@@ -135,6 +135,28 @@ function listToolsMessage(): array
 }
 
 /**
+ * A request for any other method: resources/list, resources/read, prompts/get, completion/complete...
+ *
+ * @param  array<string, mixed>  $params
+ * @return array<string, mixed>
+ */
+function rpcMessage(string $method, array $params = []): array
+{
+    return [
+        'jsonrpc' => '2.0',
+        'id' => 1,
+        'method' => $method,
+        'params' => [
+            ...$params,
+            '_meta' => [
+                'io.modelcontextprotocol/protocolVersion' => '2026-07-28',
+                'io.modelcontextprotocol/clientCapabilities' => [],
+            ],
+        ],
+    ];
+}
+
+/**
  * Post a JSON-RPC message to an MCP route and return every message sent back, whether the
  * transport answered with plain JSON or with a server-sent event stream.
  *
@@ -148,7 +170,8 @@ function postMcp(string $uri, array $message, ?string $token = null, int $status
     $response = $request->postJson($uri, $message, array_filter([
         'MCP-Protocol-Version' => '2026-07-28',
         'Mcp-Method' => $message['method'],
-        'Mcp-Name' => $message['params']['name'] ?? null,
+        // laravel/mcp checks that Mcp-Name mirrors params.name, or params.uri for resources/read.
+        'Mcp-Name' => $message['params']['name'] ?? $message['params']['uri'] ?? null,
     ]));
 
     $response->assertStatus($status);

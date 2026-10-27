@@ -42,10 +42,11 @@ class UmpireServiceProvider extends ServiceProvider
             $app->make(ToolCallInterceptor::class)->intercept($app);
         });
 
-        // Every MCP request resolves exactly one Method (tools/list, tools/call, ping...), after
-        // the server's boot(). Refuse it if a tool's #[Authorize] would not be enforced.
+        // Every MCP request resolves exactly one Method (tools/list, resources/read, prompts/get,
+        // ping...), after the server's boot(). Refuse it if an #[Authorize] on any of the server's
+        // tools, resources or prompts would not be enforced.
         $this->app->afterResolving(Method::class, function (Method $method, Container $app): void {
-            $app->make(EnforcementCheck::class)->verify($app->make(ToolCallInterceptor::class)->toolClassesFor($app));
+            $app->make(EnforcementCheck::class)->verify($app->make(ToolCallInterceptor::class)->primitiveClassesFor($app));
         });
     }
 

@@ -16,6 +16,7 @@ use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\ResponseFactory;
 use Laravel\Mcp\Server;
+use Laravel\Mcp\Server\Primitive;
 use Laravel\Mcp\Server\Tool;
 use MujahidAbbas\Umpire\Attributes\Redact;
 use MujahidAbbas\Umpire\Events\InvokingTool;
@@ -109,6 +110,40 @@ class ToolCallInterceptor
         $server = $this->servers[$app] ?? null;
 
         return $server === null ? [] : $this->toolClasses($server);
+    }
+
+    /**
+     * The tool, resource and prompt classes of the server that will handle the current request,
+     * including those added in boot(), or none when no server has been resolved in this container.
+     *
+     * @return list<string>
+     */
+    public function primitiveClassesFor(Container $app): array
+    {
+        $server = $this->servers[$app] ?? null;
+
+        if ($server === null) {
+            return [];
+        }
+
+        return array_values(array_unique([
+            ...$this->toolClasses($server),
+            ...$this->classesIn($server, 'resources'),
+            ...$this->classesIn($server, 'prompts'),
+        ]));
+    }
+
+    /**
+     * Read the classes from one of the server's flat primitive lists, $resources or $prompts.
+     *
+     * @return list<string>
+     */
+    protected function classesIn(Server $server, string $property): array
+    {
+        /** @var array<int, Primitive|string> $primitives */
+        $primitives = (new ReflectionProperty(Server::class, $property))->getValue($server);
+
+        return array_values(array_map(fn (Primitive|string $primitive): string => is_string($primitive) ? $primitive : $primitive::class, $primitives));
     }
 
     /**

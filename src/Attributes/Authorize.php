@@ -7,8 +7,9 @@ namespace MujahidAbbas\Umpire\Attributes;
 use Attribute;
 
 /**
- * A Gate ability the authenticated user must have to see or call this tool. Repeat it to require
- * several abilities; every one must pass. The tool must use the AuthorizesWithGate trait.
+ * A Gate ability the authenticated user must have to see or use this tool, resource or prompt.
+ * Repeat it to require several abilities; every one must pass. The class must use the
+ * AuthorizesWithGate trait.
  */
 #[Attribute(Attribute::TARGET_CLASS | Attribute::IS_REPEATABLE)]
 final class Authorize

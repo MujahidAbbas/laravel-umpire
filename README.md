@@ -117,18 +117,61 @@ with the `can` middleware. A class name selects a policy:
 - Attributes on parent classes count, so a tool that extends a protected tool stays protected.
 - A guest is denied unless the gate or policy method accepts a null user (`?User $user`).
 
+### Resources and prompts
+
+The attribute and the trait protect a resource, a resource template or a prompt the same way:
+
+```php
+namespace App\Mcp\Resources;
+
+use Laravel\Mcp\Request;
+use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
+use Laravel\Mcp\Server\Attributes\Uri;
+use Laravel\Mcp\Server\Resource;
+use MujahidAbbas\Umpire\Attributes\Authorize;
+use MujahidAbbas\Umpire\Concerns\AuthorizesWithGate;
+
+#[Description('The refund policy agents follow.')]
+#[Uri('helpdesk://policies/refunds')]
+#[Authorize('issue-refunds')]
+class RefundPolicyResource extends Resource
+{
+    use AuthorizesWithGate;
+
+    public function handle(Request $request): Response
+    {
+        return Response::text('Refunds over 30 days need a supervisor.');
+    }
+}
+```
+
+For a user the Gate denies:
+
+- the resource is missing from `resources/list`, a template from `resources/templates/list`, and
+  a prompt from `prompts/list`;
+- `resources/read` fails with JSON-RPC error `-32602` (HTTP 400) and the message
+  `Resource [helpdesk://policies/refunds] not found.`, naming the URI the client asked for (for a
+  template, the expanded URI);
+- `prompts/get` fails with `-32602` (HTTP 400) and, for a `DraftRefundReplyPrompt`, the message
+  `Prompt [draft-refund-reply-prompt] not found.`;
+- `completion/complete` for that resource or prompt fails with the same "not found" error.
+
+The tool-call events and the audit table cover tools only: reading a resource or getting a prompt
+dispatches no event.
+
 ### Fail closed
 
 The attribute does nothing without the trait, because laravel/mcp only ever calls
-`shouldRegister()`. So on every MCP request Umpire checks the server's tools. When a tool has
-`#[Authorize]` and its `shouldRegister()` is not the trait's (the trait is missing, or the tool
-or a subclass defines its own), Umpire throws
+`shouldRegister()`. So on every MCP request Umpire checks the server's tools, resources and
+prompts. When one has `#[Authorize]` and its `shouldRegister()` is not the trait's (the trait is
+missing, or the class or a subclass defines its own), Umpire throws
 `MujahidAbbas\Umpire\Exceptions\AuthorizationNotEnforced`. Every request to that server then
-fails with HTTP 500 and the exception is reported, until the tool is fixed. With `app.debug`
-off the response is JSON-RPC error `-32603`; with it on, laravel/mcp rethrows the exception. laravel/mcp's test helpers throw it too, so a test of any tool on the server catches the
+fails with HTTP 500 and the exception is reported, until the class is fixed. With `app.debug`
+off the response is JSON-RPC error `-32603`; with it on, laravel/mcp rethrows the exception. laravel/mcp's test helpers throw it too, so a test of anything on the server catches the
 mistake.
 
-If you want your own `shouldRegister()` logic, leave `#[Authorize]` off that tool and call the
+If you want your own `shouldRegister()` logic, leave `#[Authorize]` off that class and call the
 Gate yourself.
 
 ## Tool-call events
@@ -319,15 +362,19 @@ Without `appendOutputTo()` (or `sendOutputTo()`), the scheduler sends the comman
 
 ## Limitations
 
-- **Where Umpire looks for tools.** Umpire finds a server's tools in its `$tools` property,
-  including tools added in `boot()`. It does not see tools supplied by an overridden
-  `createContext()`, or calls handled by a custom `tools/call` method that does not extend
-  laravel/mcp's `CallTool`. Both the audit and the `#[Authorize]` check share this limit.
+- **Where Umpire looks for tools, resources and prompts.** Umpire finds them in the server's
+  `$tools`, `$resources` and `$prompts` properties, including those added in `boot()`. It does
+  not see any supplied by an overridden `createContext()`, or calls handled by a custom
+  `tools/call` method that does not extend laravel/mcp's `CallTool`. Both the audit and the
+  `#[Authorize]` check share this limit.
 - **Your own binding on `handle()`.** Umpire audits a tool through a container method binding
   on its `handle()`. If a tool already has one when Umpire binds, Umpire refuses every tool call
   on that server with `ToolCannotBeAudited` (HTTP 500, reported) rather than run it unaudited. A binding your app makes after Umpire's replaces it silently,
   and that tool goes unaudited. This is not supported.
-- **`#[Authorize]` covers tools only**, not resources or prompts.
+- **A template can answer for a hidden resource.** laravel/mcp looks for a static resource first
+  and then tries the templates. When `#[Authorize]` hides a resource whose URI also matches a
+  template the user may read, `resources/read` returns the template's response instead of "not
+  found". Give a protected resource a URI that no template matches.
 - **Refused calls are never audited.** A call `#[Authorize]` refuses never reaches `handle()`,
   so it dispatches no events and writes no row.
 - **Two refusal shapes.** A refused direct call is JSON-RPC `-32602` "not found"; inside

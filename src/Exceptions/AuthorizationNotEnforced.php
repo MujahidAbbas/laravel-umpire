@@ -12,15 +12,15 @@ class AuthorizationNotEnforced extends LogicException
     public static function becauseTraitIsMissing(string $class): self
     {
         return new self(
-            "Umpire cannot enforce #[Authorize] on [{$class}]: the tool does not use the ".AuthorizesWithGate::class.' trait, '
-            .'so laravel/mcp would list and run it for every user. Add `use AuthorizesWithGate;` to the tool.',
+            "Umpire cannot enforce #[Authorize] on [{$class}]: the class does not use the ".AuthorizesWithGate::class.' trait, '
+            .'so laravel/mcp would list it and let every user use it. Add `use AuthorizesWithGate;` to the class.',
         );
     }
 
     public static function becauseShouldRegisterIsOverridden(string $class): self
     {
         return new self(
-            "Umpire cannot enforce #[Authorize] on [{$class}]: the tool defines its own shouldRegister(), which replaces "
+            "Umpire cannot enforce #[Authorize] on [{$class}]: the class defines its own shouldRegister(), which replaces "
             .'the one from AuthorizesWithGate, so the attribute would be ignored. Remove that shouldRegister(), or remove '
             .'#[Authorize] and check the Gate inside your own shouldRegister().',
         );

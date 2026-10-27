@@ -1,6 +1,6 @@
 ---
 name: umpire-development
-description: "Sets up and works with Umpire for Laravel (mujahidabbas/laravel-umpire) on laravel/mcp servers. Activates when restricting MCP tools to some users with Gate abilities or policies; adding #[Authorize], AuthorizesWithGate or #[Redact] to a tool; listening for InvokingTool, ToolInvoked or ToolFailed; enabling, querying, pruning or tenant-scoping the mcp_tool_calls audit table or the ToolCall model; cleaning up OAuth clients left by MCP dynamic client registration with mcp:purge-clients; writing tests for protected or audited tools; or debugging AuthorizationNotEnforced, ToolCannotBeAudited, a tool missing from tools/list, or a QueryException on /oauth/register."
+description: "Sets up and works with Umpire for Laravel (mujahidabbas/laravel-umpire) on laravel/mcp servers. Activates when restricting MCP tools, resources or prompts to some users with Gate abilities or policies; adding #[Authorize] or AuthorizesWithGate to a tool, resource or prompt, or #[Redact] to a tool; listening for InvokingTool, ToolInvoked or ToolFailed; enabling, querying, pruning or tenant-scoping the mcp_tool_calls audit table or the ToolCall model; cleaning up OAuth clients left by MCP dynamic client registration with mcp:purge-clients; writing tests for protected or audited tools; or debugging AuthorizationNotEnforced, ToolCannotBeAudited, a tool, resource or prompt missing from its list, or a QueryException on /oauth/register."
 license: MIT
 ---
 # Umpire for Laravel
@@ -45,8 +45,9 @@ class IssueRefundTool extends Tool
 - Repeat the attribute to require several abilities; all must pass. Attributes on parent classes apply to subclasses.
 - A guest is denied unless the gate or policy accepts a nullable user.
 - A denied user does not see the tool in `tools/list` or `search_tools`. A direct call fails with JSON-RPC `-32602` `Tool [issue-refund-tool] not found.`; through `execute_tools` it is an error result `Tool [issue-refund-tool] is not available.`
-- Do not add a `shouldRegister()` to a tool with `#[Authorize]`. Umpire compares the method with the trait's and throws `AuthorizationNotEnforced` on every request to that server when they differ. If a tool needs custom logic, remove `#[Authorize]` and check the Gate in your own `shouldRegister()`.
-- `#[Authorize]` covers tools only. Resources and prompts need their own `shouldRegister()`.
+- Do not add a `shouldRegister()` to a tool, resource or prompt with `#[Authorize]`. Umpire compares the method with the trait's and throws `AuthorizationNotEnforced` on every request to that server when they differ. If a class needs custom logic, remove `#[Authorize]` and check the Gate in your own `shouldRegister()`.
+- The same attribute and trait protect a resource, a resource template or a prompt. A denied user does not see it in `resources/list`, `resources/templates/list` or `prompts/list`. `resources/read` fails with JSON-RPC `-32602` `Resource [<uri>] not found.`, naming the URI the client asked for, and `prompts/get` with `Prompt [<name>] not found.`. Tool-call events and the audit table cover tools only.
+- laravel/mcp looks for a static resource before it tries the templates, so a template whose pattern matches a hidden resource's URI answers for it. Give a protected resource a URI no template matches.
 
 ## Observe tool calls
 
@@ -117,13 +118,20 @@ HelpdeskServer::actingAs($supervisor)->tool(IssueRefundTool::class, ['reference'
 Event::assertDispatched(ToolInvoked::class, fn (ToolInvoked $event): bool => $event->tool === 'issue-refund-tool');
 ```
 
-A misconfigured `#[Authorize]` tool makes these helpers throw `AuthorizationNotEnforced`, so any test of the server catches it.
+For a refused resource or prompt, `->resource(RefundPolicyResource::class)->assertNotRegistered()` and `->prompt(DraftRefundReplyPrompt::class)->assertNotRegistered()` work, but not for a resource template: laravel/mcp's assertion looks for the template while the error names the URI that was read. Assert that error instead:
+
+```php
+HelpdeskServer::actingAs($agent)->resource(CustomerRecordResource::class, ['id' => 'C-1001'])
+    ->assertHasErrors(['Resource [helpdesk://customers/C-1001] not found.']);
+```
+
+A misconfigured `#[Authorize]` tool, resource or prompt makes these helpers throw `AuthorizationNotEnforced`, so any test of the server catches it.
 
 ## Troubleshooting
 
-- `AuthorizationNotEnforced`: the named tool has `#[Authorize]` but lacks `AuthorizesWithGate`, or it (or a parent or subclass) defines `shouldRegister()`. Fix the tool; the server fails every request until then.
+- `AuthorizationNotEnforced`: the named tool, resource or prompt has `#[Authorize]` but lacks `AuthorizesWithGate`, or it (or a parent or subclass) defines `shouldRegister()`. Fix the class; the server fails every request until then.
 - `ToolCannotBeAudited`: something binds the tool's `handle()` with `bindMethod()`. Remove that binding.
-- A tool missing for a user who should see it: check the Gate ability or policy for that user, including a guest (`null` user).
+- A tool, resource or prompt missing for a user who should see it: check the Gate ability or policy for that user, including a guest (`null` user).
 - `QueryException` on `/oauth/register`: the `mcp_registered_clients` table is missing. Publish and run the migrations, or set `umpire.clients.record` to `false`. Registration still succeeds.
 - A 500 on laravel/mcp's consent screen: its view calls `@vite(['resources/css/app.css'])`. Build the assets, or remove that line from the published view (`--tag=mcp-views`). This is laravel/mcp, not Umpire.
 - Claude Code refuses OAuth over plain `http` except on `localhost`: serve locally on `localhost` or over https.
