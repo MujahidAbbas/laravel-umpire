@@ -1,5 +1,8 @@
 # Umpire for Laravel
 
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/mujahidabbas/laravel-umpire.svg?style=flat-square)](https://packagist.org/packages/mujahidabbas/laravel-umpire)
+[![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/MujahidAbbas/laravel-umpire/tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/MujahidAbbas/laravel-umpire/actions?query=workflow%3Atests+branch%3Amain)
+
 Per-tool Gate authorization, tool-call audit events and a safe stale-client purge for
 [laravel/mcp](https://github.com/laravel/mcp) servers.
 
