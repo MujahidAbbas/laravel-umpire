@@ -17,8 +17,8 @@ it leaves to you:
   the duration. An optional table keeps one row per call.
 - **Cleanup of abandoned client registrations.** Every MCP client that connects through dynamic
   client registration creates a Passport client, and failed or abandoned logins leave them
-  behind. `mcp:purge-clients` deletes the ones Umpire recorded at registration that never
-  received an access token, and only lists them until you pass `--force`.
+  behind. `mcp:purge-clients` deletes the ones Umpire recorded at registration that have no
+  access tokens left, and only lists them until you pass `--force`.
 
 ## Requirements
 
@@ -170,6 +170,13 @@ missing, or the class or a subclass defines its own), Umpire throws
 fails with HTTP 500 and the exception is reported, until the class is fixed. With `app.debug`
 off the response is JSON-RPC error `-32603`; with it on, laravel/mcp rethrows the exception. laravel/mcp's test helpers throw it too, so a test of anything on the server catches the
 mistake.
+
+The same exception covers an `#[Authorize]` the trait would never read. That is one that is not
+Umpire's: Laravel's controller attribute `Illuminate\Routing\Attributes\Controllers\Authorize`,
+or `#[Authorize]` without its `use MujahidAbbas\Umpire\Attributes\Authorize;` line, which PHP
+resolves to a class in the tool's own namespace. It is also one on a method such as `handle()`,
+or on a trait the class uses, since PHP gives a class neither. PHP checks none of these until
+something instantiates the attribute, and a tool call never does.
 
 If you want your own `shouldRegister()` logic, leave `#[Authorize]` off that class and call the
 Gate yourself.
@@ -332,10 +339,10 @@ php artisan mcp:purge-clients --unused --force
 
 | Option         | Meaning                                                                                       |
 |----------------|-----------------------------------------------------------------------------------------------|
-| `--unused`     | Required. Selects recorded clients that never received an access token, revoked or not.      |
+| `--unused`     | Required. Selects recorded clients with no access tokens left. A revoked token keeps its client off the list until `passport:purge` removes it. |
 | `--older-than` | Only clients registered longer ago than this. Digits followed by `m`, `h` or `d`, at least `1h`. Default `24h`. |
 | `--dry-run`    | List without deleting. This is already the default; it cannot be combined with `--force`.    |
-| `--force`      | Delete the listed clients.                                                                    |
+| `--force`      | Delete the listed clients. In production it asks first, but only in a terminal.               |
 
 Each client is deleted in its own transaction, together with its authorization codes and its
 marker. The delete checks for tokens again, so a client that receives one after the listing is
@@ -343,6 +350,14 @@ kept. The purge never touches a client Umpire did not record: clients made with
 `passport:client`, Passport's personal access client, and anything registered before you
 installed Umpire. It refuses to run unless Passport's clients, tokens and authorization codes
 and the marker table share one database connection.
+
+"No access tokens left" is not the same as "never logged in". `passport:purge` deletes revoked
+tokens and tokens that expired more than a week ago, so a client whose tokens it removed is
+listed too. Deleting it costs its user one more login, which a revoked token forces anyway:
+Claude Code then registers a new client on its own (seen with 2.1.312). On Passport before 13.10, `passport:purge`
+also deletes an expired access token whose refresh token is still valid. If your access tokens
+expire sooner than your refresh tokens, upgrade Passport before you schedule the purge, or it can
+delete a client that could still refresh.
 
 In production, `--force` asks `Delete N clients from production? This cannot be undone.` when
 it runs in a terminal. With `-n`, or without a terminal, as under the scheduler, it deletes

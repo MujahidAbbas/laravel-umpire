@@ -17,7 +17,7 @@ use Symfony\Component\Console\Attribute\AsCommand;
 
 /**
  * Deletes OAuth clients that laravel/mcp created through dynamic client registration, Umpire
- * recorded, and that never received an access token. Lists them unless --force is given.
+ * recorded, and that have no access tokens left. Lists them unless --force is given.
  */
 #[AsCommand(name: 'mcp:purge-clients')]
 class PurgeClientsCommand extends Command
@@ -26,7 +26,7 @@ class PurgeClientsCommand extends Command
      * @var string
      */
     protected $signature = 'mcp:purge-clients
-        {--unused : Select recorded clients that never received an access token (required)}
+        {--unused : Select recorded clients with no access tokens left (required)}
         {--older-than=24h : Only clients registered longer ago than this: digits followed by m, h or d, at least 1h}
         {--dry-run : List the clients without deleting them (the default)}
         {--force : Delete the listed clients}';
@@ -34,12 +34,12 @@ class PurgeClientsCommand extends Command
     /**
      * @var string
      */
-    protected $description = 'Delete OAuth clients registered through MCP dynamic client registration that never received an access token';
+    protected $description = 'Delete OAuth clients registered through MCP dynamic client registration that have no access tokens left';
 
     public function handle(): int
     {
         if (! $this->option('unused')) {
-            $this->fail('Pass --unused. It is the only purge rule: clients recorded at registration that never received an access token.');
+            $this->fail('Pass --unused. It is the only purge rule: clients recorded at registration with no access tokens left.');
         }
 
         if ($this->option('dry-run') && $this->option('force')) {
@@ -103,8 +103,8 @@ class PurgeClientsCommand extends Command
     }
 
     /**
-     * Recorded clients registered before the cutoff that still exist and have no access token,
-     * revoked or not.
+     * Recorded clients registered before the cutoff that still exist and have no row in the access
+     * token table. A revoked token keeps its client off the list until passport:purge removes it.
      *
      * @return Collection<int, object{client_id: string, name: string, registered_at: string}>
      */

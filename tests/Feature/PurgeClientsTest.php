@@ -11,7 +11,7 @@ use Laravel\Passport\Token;
 use MujahidAbbas\Umpire\Tests\Fixtures\Models\SecondaryToken;
 
 // mcp:purge-clients decides what gets deleted. Only a client Umpire recorded at registration,
-// registered before the cutoff and never issued an access token may go; every other client,
+// registered before the cutoff and with no access tokens left may go; every other client,
 // and every other client's auth codes and marker, must survive.
 
 beforeEach(function (): void {
@@ -93,7 +93,7 @@ it('lists the clients it would delete and deletes nothing', function (array $opt
     'with --dry-run' => [['--dry-run' => true]],
 ]);
 
-it('deletes only recorded clients older than the cutoff that never got a token', function (): void {
+it('deletes only recorded clients older than the cutoff with no access tokens left', function (): void {
     $this->artisan('mcp:purge-clients', ['--unused' => true, '--force' => true])
         ->expectsOutput('Deleted 1 client.')
         ->assertSuccessful();
@@ -213,4 +213,40 @@ it('refuses to run when its tables are on different connections', function (): v
     expect(Artisan::call('mcp:purge-clients', ['--unused' => true, '--force' => true]))->toBe(1)
         ->and(Artisan::output())->toContain('must share one database connection', 'oauth_access_tokens on [secondary]')
         ->and(clientIds())->toHaveCount(5);
+});
+
+it('lists a client that got a token once passport:purge has removed it', function (): void {
+    // The Passport docs' revocation recipe: the access token and its refresh token.
+    $token = Passport::token()->newQuery()->where('client_id', $this->revoked)->sole();
+    Passport::refreshToken()->forceFill([
+        'id' => bin2hex(random_bytes(40)),
+        'access_token_id' => $token->getKey(),
+        'revoked' => true,
+        'expires_at' => now()->addMonth(),
+    ])->save();
+
+    $this->artisan('passport:purge')->assertSuccessful();
+
+    $this->artisan('mcp:purge-clients', ['--unused' => true])
+        ->expectsOutputToContain($this->revoked)
+        ->expectsOutput('2 clients would be deleted. Run with --force to delete them.')
+        ->assertSuccessful();
+});
+
+it('keeps an expired access token whose refresh token is live, so passport:purge cannot make its client unused', function (): void {
+    $token = Passport::token()->newQuery()->where('client_id', $this->tokened)->sole();
+    $token->forceFill(['expires_at' => now()->subDays(8)])->save();
+    Passport::refreshToken()->forceFill([
+        'id' => bin2hex(random_bytes(40)),
+        'access_token_id' => $token->getKey(),
+        'revoked' => false,
+        'expires_at' => now()->addMonth(),
+    ])->save();
+
+    $this->artisan('passport:purge')->assertSuccessful();
+
+    expect(Passport::token()->newQuery()->whereKey($token->getKey())->exists())->toBeTrue();
+    $this->artisan('mcp:purge-clients', ['--unused' => true])
+        ->doesntExpectOutputToContain($this->tokened)
+        ->assertSuccessful();
 });

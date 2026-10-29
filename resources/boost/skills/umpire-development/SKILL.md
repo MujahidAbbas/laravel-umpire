@@ -86,7 +86,7 @@ ToolCall::query()->where('tool', 'issue-refund-tool')->where('created_at', '>=',
 
 ## Purge abandoned client registrations
 
-Umpire records each client created through laravel/mcp's `mcp.oauth.register` route. `mcp:purge-clients --unused` lists recorded clients older than `--older-than` (default `24h`, minimum `1h`, digits plus `m`, `h` or `d`) that never received an access token; `--force` deletes them with their auth codes. It never touches clients Umpire did not record.
+Umpire records each client created through laravel/mcp's `mcp.oauth.register` route. `mcp:purge-clients --unused` lists recorded clients older than `--older-than` (default `24h`, minimum `1h`, digits plus `m`, `h` or `d`) that have no access tokens left; `--force` deletes them with their auth codes. It never touches clients Umpire did not record.
 
 ```php
 use Illuminate\Support\Facades\Schedule;
@@ -98,6 +98,7 @@ Schedule::command('mcp:purge-clients --unused --force')
 
 - In production `--force` asks for confirmation only in a terminal; under the scheduler it deletes without asking.
 - Without `appendOutputTo()`, the scheduler sends the output to `/dev/null`.
+- `passport:purge` deletes revoked tokens and tokens expired for more than a week, so their clients are listed too; Claude Code registers a new client on its next login. On Passport before 13.10 it also deletes expired access tokens whose refresh token is still valid: if access tokens expire sooner than refresh tokens there, upgrade Passport before scheduling the purge.
 - Never clean up MCP clients by deleting `oauth_clients` rows directly: a client that received a token is in use.
 
 ## Testing
@@ -125,11 +126,27 @@ HelpdeskServer::actingAs($agent)->resource(CustomerRecordResource::class, ['id' 
     ->assertHasErrors(['Resource [helpdesk://customers/C-1001] not found.']);
 ```
 
+Over HTTP, a call to tool search's `execute_tools` (on a server whose tools sit in a `ToolSearch` catalog) answers with a server-sent event stream, so `assertSee()` sees an empty body. Read `streamedContent()` instead:
+
+```php
+$response = $this->withToken($token)->postJson('/mcp/helpdesk', [
+    'jsonrpc' => '2.0',
+    'id' => 1,
+    'method' => 'tools/call',
+    'params' => [
+        'name' => 'execute_tools',
+        'arguments' => ['calls' => [['name' => 'issue-refund-tool', 'arguments' => ['reference' => 'HD-1001']]]],
+    ],
+]);
+
+$this->assertStringContainsString('Tool [issue-refund-tool] is not available.', $response->streamedContent());
+```
+
 A misconfigured `#[Authorize]` tool, resource or prompt makes these helpers throw `AuthorizationNotEnforced`, so any test of the server catches it.
 
 ## Troubleshooting
 
-- `AuthorizationNotEnforced`: the named tool, resource or prompt has `#[Authorize]` but lacks `AuthorizesWithGate`, or it (or a parent or subclass) defines `shouldRegister()`. Fix the class; the server fails every request until then.
+- `AuthorizationNotEnforced`: the named tool, resource or prompt has `#[Authorize]` but lacks `AuthorizesWithGate`, or it (or a parent or subclass) defines `shouldRegister()`, or its `#[Authorize]` is not Umpire's (a missing `use MujahidAbbas\Umpire\Attributes\Authorize;` line, or Laravel's controller attribute), or sits on a method or a trait. The message names which. Fix the class; the server fails every request until then.
 - `ToolCannotBeAudited`: something binds the tool's `handle()` with `bindMethod()`. Remove that binding.
 - A tool, resource or prompt missing for a user who should see it: check the Gate ability or policy for that user, including a guest (`null` user).
 - `QueryException` on `/oauth/register`: the `mcp_registered_clients` table is missing. Publish and run the migrations, or set `umpire.clients.record` to `false`. Registration still succeeds.
