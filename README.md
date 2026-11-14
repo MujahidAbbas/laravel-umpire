@@ -18,7 +18,7 @@ it leaves to you:
 - **Cleanup of abandoned client registrations.** Every MCP client that connects through dynamic
   client registration creates a Passport client, and failed or abandoned logins leave them
   behind. `mcp:purge-clients` deletes the ones Umpire recorded at registration that have no
-  access tokens left, and only lists them until you pass `--force`.
+  access tokens left and no login in progress, and only lists them until you pass `--force`.
 
 ## Requirements
 
@@ -219,6 +219,12 @@ Event::listen(function (ToolFailed $event): void {
   run.
 - An exception from `handle()`, a validation exception included, is a `ToolFailed`. Umpire
   rethrows it, so laravel/mcp handles it exactly as it would without Umpire.
+- Do not queue a listener on `ToolFailed` (a listener class that implements `ShouldQueue`). The
+  event carries the exception, and with `zend.exception_ignore_args` off, which is PHP's
+  default, its stack trace holds closures that Laravel cannot serialize. The job is never
+  queued, and "Serialization of 'Closure' is not allowed" is reported in place of the tool's own
+  exception. Listen synchronously and dispatch your own job with the values it needs, such as
+  `$event->exception::class`. A queued `ToolInvoked` listener works.
 - A streamed tool, one whose `handle()` returns a generator, settles when the stream ends. If
   the client goes away first, `ToolFailed` carries
   `MujahidAbbas\Umpire\Exceptions\ToolStreamAbandoned`, which is never thrown or reported.
@@ -287,7 +293,8 @@ Schedule::command('model:prune', ['--model' => [ToolCall::class]])->daily();
 
 `--model` limits pruning to the classes you list, so if you already schedule `model:prune` for
 your own models, add them to the same array. Rows older than `retention_days` are deleted; set
-it to `null` to keep every row.
+it to `null` to keep every row. It takes an integer or a string of digits, so it can come from
+`env()`. With any other value `model:prune` fails and deletes nothing.
 
 ### Tenant
 
@@ -331,6 +338,9 @@ php artisan mcp:purge-clients --unused
 2 clients would be deleted. Run with --force to delete them.
 ```
 
+Anyone can register a client under any name, so the Name column prints it as plain text:
+control characters are removed and console tags such as `<fg=red>` are shown as typed.
+
 Then delete them:
 
 ```bash
@@ -339,14 +349,20 @@ php artisan mcp:purge-clients --unused --force
 
 | Option         | Meaning                                                                                       |
 |----------------|-----------------------------------------------------------------------------------------------|
-| `--unused`     | Required. Selects recorded clients with no access tokens left. A revoked token keeps its client off the list until `passport:purge` removes it. |
+| `--unused`     | Required. Selects recorded clients with no access tokens left and no login in progress. A revoked token keeps its client off the list until `passport:purge` removes it. |
 | `--older-than` | Only clients registered longer ago than this. Digits followed by `m`, `h` or `d`, at least `1h`. Default `24h`. |
 | `--dry-run`    | List without deleting. This is already the default; it cannot be combined with `--force`.    |
 | `--force`      | Delete the listed clients. In production it asks first, but only in a terminal.               |
 
+A login is in progress while the client holds an authorization code that is neither revoked nor
+expired: the user has approved the client, and it has not yet exchanged the code for a token.
+Passport's codes expire after ten minutes, so such a client is skipped now and listed by a later
+run if the login was abandoned.
+
 Each client is deleted in its own transaction, together with its authorization codes and its
-marker. The delete checks for tokens again, so a client that receives one after the listing is
-kept. The purge never touches a client Umpire did not record: clients made with
+marker. The delete checks for tokens and for a login in progress again, so a client that
+receives a token or starts a login after the listing is kept. The purge never touches a client
+Umpire did not record: clients made with
 `passport:client`, Passport's personal access client, and anything registered before you
 installed Umpire. It refuses to run unless Passport's clients, tokens and authorization codes
 and the marker table share one database connection.
@@ -382,6 +398,13 @@ Without `appendOutputTo()` (or `sendOutputTo()`), the scheduler sends the comman
   not see any supplied by an overridden `createContext()`, or calls handled by a custom
   `tools/call` method that does not extend laravel/mcp's `CallTool`. Both the audit and the
   `#[Authorize]` check share this limit.
+- **Servers built outside the container.** Umpire attaches to a server when Laravel's container
+  resolves it, which is how `Mcp::web()` and `Mcp::local()` build one. A server you construct
+  yourself with `new` gets neither the fail-closed check nor the tool-call events and audit
+  rows.
+- **Local servers have no user.** A server registered with `Mcp::local()` runs over stdio with
+  no authenticated user unless your app sets one. Every tool, resource and prompt with
+  `#[Authorize]` is hidden there, unless its gate or policy accepts a guest (a nullable user).
 - **Your own binding on `handle()`.** Umpire audits a tool through a container method binding
   on its `handle()`. If a tool already has one when Umpire binds, Umpire refuses every tool call
   on that server with `ToolCannotBeAudited` (HTTP 500, reported) rather than run it unaudited. A binding your app makes after Umpire's replaces it silently,
@@ -397,6 +420,12 @@ Without `appendOutputTo()` (or `sendOutputTo()`), the scheduler sends the comman
 - **Recording is on by default.** An app that never migrates `mcp_registered_clients` gets a
   reported `QueryException` on every registration (the registration itself still succeeds).
   Migrate, or set `umpire.clients.record` to `false`.
+- **Integer Passport client ids on PostgreSQL.** `mcp_registered_clients.client_id` is a `uuid`
+  column, like Passport 13's client ids. An app that keeps integer ids
+  (`Passport::$clientUuids = false`) on PostgreSQL gets a reported `QueryException` on every
+  registration and records no client, and `mcp:purge-clients` fails with
+  `operator does not exist: bigint = uuid`. Nothing is deleted. Set `umpire.clients.record` to
+  `false` there and do not schedule the purge. On MySQL and SQLite integer ids work.
 - **MySQL reorders argument keys.** MySQL's `json` column does not keep the order of an
   object's keys, so `arguments` can come back in a different order than the tool received.
 - **Published migrations are copies.** An app that published the migrations keeps its copies

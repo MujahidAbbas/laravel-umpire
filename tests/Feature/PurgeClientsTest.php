@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Carbon\CarbonInterface;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -9,10 +10,13 @@ use Laravel\Passport\ClientRepository;
 use Laravel\Passport\Passport;
 use Laravel\Passport\Token;
 use MujahidAbbas\Umpire\Tests\Fixtures\Models\SecondaryToken;
+use Symfony\Component\Console\Output\BufferedOutput;
+use Symfony\Component\Console\Output\OutputInterface;
 
 // mcp:purge-clients decides what gets deleted. Only a client Umpire recorded at registration,
-// registered before the cutoff and with no access tokens left may go; every other client,
-// and every other client's auth codes and marker, must survive.
+// registered before the cutoff, with no access tokens left and no login in progress (an auth
+// code that can still be exchanged) may go; every other client, and every other client's auth
+// codes and marker, must survive.
 
 beforeEach(function (): void {
     $this->travelTo(now()->subDays(3));
@@ -27,7 +31,8 @@ beforeEach(function (): void {
 
     issueAccessToken($this->tokened);
     issueAccessToken($this->revoked, revoked: true);
-    issueAuthCode($this->unused);
+    // An abandoned login: the code was never exchanged and has expired.
+    issueAuthCode($this->unused, expiresAt: now()->subMinute());
     issueAuthCode($this->recent);
 });
 
@@ -48,15 +53,18 @@ function issueAccessToken(string $clientId, bool $revoked = false): void
     ])->save();
 }
 
-function issueAuthCode(string $clientId): void
+/**
+ * As Passport stores one: unrevoked, expiring ten minutes on, unless the test says otherwise.
+ */
+function issueAuthCode(string $clientId, bool $revoked = false, ?CarbonInterface $expiresAt = null): void
 {
     Passport::authCode()->forceFill([
         'id' => bin2hex(random_bytes(40)),
         'user_id' => agent()->getKey(),
         'client_id' => $clientId,
         'scopes' => '[]',
-        'revoked' => false,
-        'expires_at' => now()->addMinutes(10),
+        'revoked' => $revoked,
+        'expires_at' => $expiresAt ?? now()->addMinutes(10),
     ])->save();
 }
 
@@ -93,7 +101,7 @@ it('lists the clients it would delete and deletes nothing', function (array $opt
     'with --dry-run' => [['--dry-run' => true]],
 ]);
 
-it('deletes only recorded clients older than the cutoff with no access tokens left', function (): void {
+it('deletes only recorded clients older than the cutoff with no access tokens left and no login in progress', function (): void {
     $this->artisan('mcp:purge-clients', ['--unused' => true, '--force' => true])
         ->expectsOutput('Deleted 1 client.')
         ->assertSuccessful();
@@ -142,13 +150,102 @@ it('keeps a client that receives a token after it was listed', function (): void
 
     $this->artisan('mcp:purge-clients', ['--unused' => true, '--force' => true])
         ->expectsOutput('Deleted 0 clients.')
-        ->expectsOutput('1 client received an access token after the listing and was kept.')
+        ->expectsOutput('1 client received an access token or started a login after the listing and was kept.')
         ->assertSuccessful();
 
     expect($issued)->toBeTrue()
         ->and(clientIds())->toContain($this->unused)
         ->and(Passport::authCode()->newQuery()->where('client_id', $this->unused)->exists())->toBeTrue()
         ->and(DB::table('mcp_registered_clients')->where('client_id', $this->unused)->exists())->toBeTrue();
+});
+
+it('keeps a client with a login in progress off the list and deletes nothing of it', function (): void {
+    issueAuthCode($this->unused);
+
+    $this->artisan('mcp:purge-clients', ['--unused' => true])
+        ->expectsOutputToContain('No clients to delete.')
+        ->assertSuccessful();
+    $this->artisan('mcp:purge-clients', ['--unused' => true, '--force' => true])
+        ->expectsOutputToContain('No clients to delete.')
+        ->assertSuccessful();
+
+    expect(clientIds())->toContain($this->unused)
+        ->and(Passport::authCode()->newQuery()->where('client_id', $this->unused)->count())->toBe(2)
+        ->and(DB::table('mcp_registered_clients')->where('client_id', $this->unused)->exists())->toBeTrue();
+});
+
+it('keeps a client that starts a login after it was listed', function (): void {
+    $started = false;
+
+    DB::listen(function (QueryExecuted $query) use (&$started): void {
+        if (! $started && str_starts_with($query->sql, 'select') && str_contains($query->sql, 'mcp_registered_clients')) {
+            $started = true;
+            issueAuthCode($this->unused);
+        }
+    });
+
+    $this->artisan('mcp:purge-clients', ['--unused' => true, '--force' => true])
+        ->expectsOutput('Deleted 0 clients.')
+        ->expectsOutput('1 client received an access token or started a login after the listing and was kept.')
+        ->assertSuccessful();
+
+    expect($started)->toBeTrue()
+        ->and(clientIds())->toContain($this->unused)
+        ->and(Passport::authCode()->newQuery()->where('client_id', $this->unused)->count())->toBe(2)
+        ->and(DB::table('mcp_registered_clients')->where('client_id', $this->unused)->exists())->toBeTrue();
+});
+
+it('counts an auth code as a login in progress only while it can still be exchanged', function (bool $revoked, int $expiresInSeconds, bool $kept): void {
+    $this->freezeSecond();
+    issueAuthCode($this->unused, $revoked, now()->addSeconds($expiresInSeconds));
+
+    $this->artisan('mcp:purge-clients', ['--unused' => true, '--force' => true])->assertSuccessful();
+
+    expect(in_array($this->unused, clientIds(), true))->toBe($kept);
+})->with([
+    'unrevoked, expires in ten minutes' => [false, 600, true],
+    // league/oauth2-server refuses a code only once time() is past its expiry.
+    'unrevoked, expires this second' => [false, 0, true],
+    'unrevoked, expired a second ago' => [false, -1, false],
+    'revoked, expires in ten minutes' => [true, 600, false],
+]);
+
+it('prints a registered name as inert text', function (): void {
+    $company = fake()->company();
+    $link = 'https://'.fake()->domainName().'/login';
+
+    // Anyone can register a name: a console tag, raw escape sequences, a link tag, a C1 control.
+    $this->travelTo(now()->subDays(3));
+    $crafted = $this->postJson(route('mcp.oauth.register'), [
+        'client_name' => "<fg=red;options=bold>{$company}</> \e[1A\e[2K<href={$link}>Assistant</>\u{9b}31m",
+        'redirect_uris' => ['https://'.fake()->domainName().'/oauth/callback'],
+    ])->assertCreated()->json('client_id');
+    $this->travelBack();
+
+    // Decorated, as in a terminal: only then does the formatter turn tags into escape sequences.
+    $output = new BufferedOutput(OutputInterface::VERBOSITY_NORMAL, true);
+    Artisan::call('mcp:purge-clients', ['--unused' => true], $output);
+
+    $row = collect(explode("\n", $output->fetch()))->sole(fn (string $line): bool => str_contains($line, $crafted));
+
+    expect($row)->toContain("<fg=red;options=bold>{$company}</> [1A[2K<href={$link}>Assistant</>31m")
+        ->not->toMatch('/\p{Cc}/u');
+});
+
+it('prints a name that is not valid UTF-8 as its printable ASCII', function (): void {
+    if (DB::connection()->getDriverName() !== 'sqlite') {
+        $this->markTestSkipped('PostgreSQL and MySQL refuse to store a name that is not valid UTF-8.');
+    }
+
+    Passport::client()->newQuery()->whereKey($this->unused)->update(['name' => "Desk\x9b31m \xff\e[2KAssistant"]);
+
+    $output = new BufferedOutput(OutputInterface::VERBOSITY_NORMAL, true);
+    Artisan::call('mcp:purge-clients', ['--unused' => true], $output);
+
+    $row = collect(explode("\n", $output->fetch()))->sole(fn (string $line): bool => str_contains($line, $this->unused));
+
+    expect($row)->toContain('| Desk31m [2KAssistant |')
+        ->toMatch('/^[\x20-\x7E]+$/');
 });
 
 it('asks before deleting in production when someone can answer', function (string $answer, array $remaining): void {

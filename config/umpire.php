@@ -56,8 +56,8 @@ return [
     | Umpire records the id of every OAuth client created through laravel/mcp
     | dynamic client registration, in a table on Passport's connection. The
     | "mcp:purge-clients --unused" command only ever deletes recorded clients
-    | that have no access tokens left. The table comes with the
-    | "umpire-migrations" tag.
+    | that have no access tokens left and no login in progress. The table
+    | comes with the "umpire-migrations" tag.
     |
     */
 

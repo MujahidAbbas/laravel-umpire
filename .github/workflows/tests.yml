@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Wednesday 03:17 UTC: a new release of laravel/mcp, Laravel or Passport is tested within the
+  # week even when nothing is pushed here.
+  schedule:
+    - cron: '17 3 * * 3'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -43,7 +48,7 @@ jobs:
 
       - name: Use laravel/mcp dev-main
         if: matrix.mcp == 'dev-main'
-        run: composer require "laravel/mcp:dev-main as 1.1.99" --no-update --no-interaction
+        run: composer require "laravel/mcp:dev-main as 1.99.0" --no-update --no-interaction
 
       - name: Install dependencies
         run: composer update --${{ matrix.stability }} --prefer-dist --no-interaction --no-progress
@@ -52,10 +57,10 @@ jobs:
         run: composer show | grep -E '^(laravel/(framework|mcp|passport|sanctum)|orchestra/testbench|pestphp/pest|symfony/uid) '
 
       - name: Execute tests
-        run: vendor/bin/pest --parallel
+        run: vendor/bin/pest
 
   # PostgreSQL aborts the caller's transaction after a failed insert, so only this job and the
-  # MySQL one catch the listeners' savepoints. Serial: parallel workers would share the database.
+  # MySQL one catch the listeners' savepoints.
   pgsql:
     runs-on: ubuntu-latest
     name: PHP 8.4 - prefer-stable - mcp ^1.1 - PostgreSQL 17

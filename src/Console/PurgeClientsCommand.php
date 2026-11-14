@@ -14,10 +14,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Laravel\Passport\Passport;
 use Symfony\Component\Console\Attribute\AsCommand;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 
 /**
  * Deletes OAuth clients that laravel/mcp created through dynamic client registration, Umpire
- * recorded, and that have no access tokens left. Lists them unless --force is given.
+ * recorded, and that have no access tokens left and no login in progress. Lists them unless
+ * --force is given.
  */
 #[AsCommand(name: 'mcp:purge-clients')]
 class PurgeClientsCommand extends Command
@@ -26,7 +28,7 @@ class PurgeClientsCommand extends Command
      * @var string
      */
     protected $signature = 'mcp:purge-clients
-        {--unused : Select recorded clients with no access tokens left (required)}
+        {--unused : Select recorded clients with no access tokens left and no login in progress (required)}
         {--older-than=24h : Only clients registered longer ago than this: digits followed by m, h or d, at least 1h}
         {--dry-run : List the clients without deleting them (the default)}
         {--force : Delete the listed clients}';
@@ -39,7 +41,7 @@ class PurgeClientsCommand extends Command
     public function handle(): int
     {
         if (! $this->option('unused')) {
-            $this->fail('Pass --unused. It is the only purge rule: clients recorded at registration with no access tokens left.');
+            $this->fail('Pass --unused. It is the only purge rule: clients recorded at registration with no access tokens left and no login in progress.');
         }
 
         if ($this->option('dry-run') && $this->option('force')) {
@@ -75,7 +77,7 @@ class PurgeClientsCommand extends Command
 
         $this->table(
             ['Client ID', 'Name', 'Registered at'],
-            $candidates->map(fn (object $client): array => [$client->client_id, $client->name, $client->registered_at])->all(),
+            $candidates->map(fn (object $client): array => [$client->client_id, $this->printable($client->name), $client->registered_at])->all(),
         );
 
         if (! $this->option('force')) {
@@ -96,15 +98,16 @@ class PurgeClientsCommand extends Command
         $this->line(sprintf('Deleted %d %s.', $deleted, Str::plural('client', $deleted)));
 
         if ($kept > 0) {
-            $this->line(sprintf('%d %s received an access token after the listing and %s kept.', $kept, Str::plural('client', $kept), $kept === 1 ? 'was' : 'were'));
+            $this->line(sprintf('%d %s received an access token or started a login after the listing and %s kept.', $kept, Str::plural('client', $kept), $kept === 1 ? 'was' : 'were'));
         }
 
         return self::SUCCESS;
     }
 
     /**
-     * Recorded clients registered before the cutoff that still exist and have no row in the access
-     * token table. A revoked token keeps its client off the list until passport:purge removes it.
+     * Recorded clients registered before the cutoff that still exist, have no row in the access
+     * token table and no login in progress. A revoked token keeps its client off the list until
+     * passport:purge removes it.
      *
      * @return Collection<int, object{client_id: string, name: string, registered_at: string}>
      */
@@ -121,6 +124,8 @@ class PurgeClientsCommand extends Command
             ->whereNotExists(fn (Builder $query): Builder => $query->selectRaw('1')
                 ->from($tokens->getTable())
                 ->whereColumn($tokens->qualifyColumn('client_id'), "{$markers}.client_id"))
+            ->whereNotExists(fn (Builder $query): Builder => $this->loginsInProgress($query)
+                ->whereColumn(Passport::authCode()->qualifyColumn('client_id'), "{$markers}.client_id"))
             ->orderBy("{$markers}.registered_at")
             ->orderBy("{$markers}.client_id")
             ->get(["{$markers}.client_id", $clients->qualifyColumn('name'), "{$markers}.registered_at"]);
@@ -128,7 +133,8 @@ class PurgeClientsCommand extends Command
 
     /**
      * Delete one client, its auth codes and its marker in a single transaction. The client row's
-     * DELETE re-checks for tokens itself, so a client that got one after the listing survives.
+     * DELETE re-checks for tokens and for a login in progress itself, so a client that got a token
+     * or started a login after the listing survives.
      */
     protected function delete(ConnectionInterface $connection, string $clientId): bool
     {
@@ -142,6 +148,8 @@ class PurgeClientsCommand extends Command
                 ->whereNotExists(fn (Builder $query): Builder => $query->selectRaw('1')
                     ->from($tokens->getTable())
                     ->where('client_id', $clientId))
+                ->whereNotExists(fn (Builder $query): Builder => $this->loginsInProgress($query)
+                    ->where($authCodes->qualifyColumn('client_id'), $clientId))
                 ->delete();
 
             if ($deleted === 0) {
@@ -153,6 +161,33 @@ class PurgeClientsCommand extends Command
 
             return true;
         });
+    }
+
+    /**
+     * Auth codes that can still be exchanged for a token: unrevoked and unexpired. Passport stores
+     * the expiry the OAuth server checks, and that server accepts a code up to and including its
+     * expiry second.
+     */
+    protected function loginsInProgress(Builder $query): Builder
+    {
+        $authCodes = Passport::authCode();
+
+        return $query->selectRaw('1')
+            ->from($authCodes->getTable())
+            ->where($authCodes->qualifyColumn('revoked'), false)
+            ->where($authCodes->qualifyColumn('expires_at'), '>=', Carbon::now());
+    }
+
+    /**
+     * A client's name as inert text. The name comes from the unauthenticated registration route,
+     * so control characters are dropped (every byte outside printable ASCII when the name is not
+     * valid UTF-8) and console tags are escaped: neither reaches the terminal or a log as markup.
+     */
+    protected function printable(string $name): string
+    {
+        return OutputFormatter::escape(
+            preg_replace('/\p{Cc}+/u', '', $name) ?? (string) preg_replace('/[^\x20-\x7E]+/', '', $name),
+        );
     }
 
     /**

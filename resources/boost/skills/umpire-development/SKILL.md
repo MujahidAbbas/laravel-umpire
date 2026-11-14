@@ -64,6 +64,7 @@ Event::listen(function (ToolFailed $event): void {
 ```
 
 - Calls `#[Authorize]` refuses never reach `handle()`, so they dispatch no events.
+- Never queue a `ToolFailed` listener (a class implementing `ShouldQueue`): the event carries the exception, whose stack trace holds closures, so the job is never queued and "Serialization of 'Closure' is not allowed" is reported in place of the tool's own exception. Listen synchronously and dispatch a job with the values it needs, such as `$event->exception::class`. A queued `ToolInvoked` listener works.
 - Never add a container method binding (`bindMethod()`) on a tool's `handle()`: Umpire audits through one. An existing binding makes Umpire refuse every tool call on the server with `ToolCannotBeAudited`; one added after Umpire's silently turns the audit off for that tool.
 
 ## Redact arguments
@@ -80,13 +81,13 @@ use MujahidAbbas\Umpire\Models\ToolCall;
 ToolCall::query()->where('tool', 'issue-refund-tool')->where('created_at', '>=', now()->subDay())->get();
 ```
 
-- Retention: `umpire.audit.retention_days` (90; `null` keeps every row). Schedule `Schedule::command('model:prune', ['--model' => [ToolCall::class]])->daily();`. `--model` limits pruning to the listed classes, so list the app's own prunable models in the same array.
+- Retention: `umpire.audit.retention_days` (90; `null` keeps every row; an integer or a string of digits, so `env()` works). Schedule `Schedule::command('model:prune', ['--model' => [ToolCall::class]])->daily();`. `--model` limits pruning to the listed classes, so list the app's own prunable models in the same array.
 - Tenant: `Umpire::resolveTenantUsing(fn (ToolInvoked|ToolFailed $event) => $event->user?->team_id);` in a service provider's `boot()`. The value is stored as a string.
 - MySQL's `json` column does not keep the key order of `arguments`.
 
 ## Purge abandoned client registrations
 
-Umpire records each client created through laravel/mcp's `mcp.oauth.register` route. `mcp:purge-clients --unused` lists recorded clients older than `--older-than` (default `24h`, minimum `1h`, digits plus `m`, `h` or `d`) that have no access tokens left; `--force` deletes them with their auth codes. It never touches clients Umpire did not record.
+Umpire records each client created through laravel/mcp's `mcp.oauth.register` route. `mcp:purge-clients --unused` lists recorded clients older than `--older-than` (default `24h`, minimum `1h`, digits plus `m`, `h` or `d`) that have no access tokens left and no login in progress (an auth code that is neither revoked nor expired; Passport's expire after ten minutes); `--force` deletes them with their auth codes. It never touches clients Umpire did not record.
 
 ```php
 use Illuminate\Support\Facades\Schedule;
@@ -150,5 +151,8 @@ A misconfigured `#[Authorize]` tool, resource or prompt makes these helpers thro
 - `ToolCannotBeAudited`: something binds the tool's `handle()` with `bindMethod()`. Remove that binding.
 - A tool, resource or prompt missing for a user who should see it: check the Gate ability or policy for that user, including a guest (`null` user).
 - `QueryException` on `/oauth/register`: the `mcp_registered_clients` table is missing. Publish and run the migrations, or set `umpire.clients.record` to `false`. Registration still succeeds.
+- `invalid input syntax for type uuid` on `/oauth/register`, or `operator does not exist: bigint = uuid` from `mcp:purge-clients`: the app keeps integer Passport client ids (`Passport::$clientUuids = false`) on PostgreSQL, where the marker's `uuid` column cannot hold them. Set `umpire.clients.record` to `false` and do not schedule the purge. MySQL and SQLite are not affected.
+- "Serialization of 'Closure' is not allowed" reported when a tool throws: a `ToolFailed` listener is queued. Make it synchronous.
+- A server built with `new` instead of through the container (`Mcp::web()`, `Mcp::local()`) gets neither the fail-closed check nor the events. On a `Mcp::local()` server there is no user, so `#[Authorize]` classes are hidden unless the gate accepts a guest.
 - A 500 on laravel/mcp's consent screen: its view calls `@vite(['resources/css/app.css'])`. Build the assets, or remove that line from the published view (`--tag=mcp-views`). This is laravel/mcp, not Umpire.
 - Claude Code refuses OAuth over plain `http` except on `localhost`: serve locally on `localhost` or over https.

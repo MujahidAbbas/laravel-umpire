@@ -2,6 +2,11 @@
 
 ## [Unreleased](https://github.com/MujahidAbbas/laravel-umpire/compare/v1.1.1...main)
 
+- `mcp:purge-clients --unused` now skips a client with a login in progress: one that holds an authorization code that is neither revoked nor expired. Until now it deleted the client and the code, and that login failed when the client exchanged the code for a token. The listing and the delete both check, so the purge deletes fewer clients than before, never more. A skipped client is listed again once its code has expired (ten minutes in Passport) if the login was abandoned. The line printed for clients kept after the listing now reads "received an access token or started a login after the listing".
+- `mcp:purge-clients` prints a client's name as plain text: control characters are removed and console tags are escaped. The name comes from laravel/mcp's unauthenticated registration route, and one holding escape sequences or tags such as `<fg=red>` or `<href=...>` could recolor the listing, move the cursor or plant a link in the terminal or in a log written with `appendOutputTo()`. It never changed which clients were deleted.
+- `umpire.audit.retention_days` accepts a string of digits, so it can come from `env()`. Until now `model:prune` failed with "must be an integer, string given". Any other value that is not an integer or `null` still fails.
+- Docs: do not queue a listener on `ToolFailed`; and three limitations: integer Passport client ids on PostgreSQL, servers built with `new`, and `Mcp::local()` servers, which have no user.
+
 ## [v1.1.1](https://github.com/MujahidAbbas/laravel-umpire/compare/v1.1.0...v1.1.1) - 2026-10-29
 
 - An `#[Authorize]` that Umpire never reads now fails closed. That covers an attribute that is not Umpire's (Laravel's controller attribute `Illuminate\Routing\Attributes\Controllers\Authorize`, or `#[Authorize]` without its `use MujahidAbbas\Umpire\Attributes\Authorize;` line, which PHP resolves to a class that does not exist), and Umpire's own attribute on a method or on a trait the class uses. Until now these were ignored, and the tool, resource or prompt was served to every user. An unimported one also broke `tools/list` with PHP's "Attribute class not found" error while calls to the tool still ran.

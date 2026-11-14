@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Auth\GenericUser;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Exceptions;
@@ -212,8 +213,8 @@ it('reports a failed write and leaves the tool\'s response unchanged', function 
     'the tenant hook throws' => [fn () => Umpire::resolveTenantUsing(fn (): never => throw new LogicException('No tenant in scope.')), LogicException::class],
 ]);
 
-it('prunes rows older than the retention with model:prune --model', function (): void {
-    config(['umpire.audit.retention_days' => 90]);
+it('prunes rows older than the retention with model:prune --model', function (int|string $days): void {
+    config(['umpire.audit.retention_days' => $days]);
 
     $this->travelTo(now()->subDays(91));
     HelpdeskServer::tool(LookupTicketTool::class);
@@ -225,7 +226,29 @@ it('prunes rows older than the retention with model:prune --model', function ():
     $this->artisan('model:prune', ['--model' => [ToolCall::class]])->assertSuccessful();
 
     expect(ToolCall::query()->orderBy('id')->pluck('tool')->all())->toBe(['summarize-queue', 'lookup-ticket']);
-});
+})->with([
+    'an integer' => [90],
+    'a string of digits, as env() returns' => ['90'],
+]);
+
+it('refuses a retention that is not a whole number of days and prunes nothing', function (mixed $days): void {
+    config(['umpire.audit.retention_days' => $days]);
+
+    $this->travelTo(now()->subYears(3));
+    HelpdeskServer::tool(LookupTicketTool::class);
+    $this->travelBack();
+
+    expect(fn () => Artisan::call('model:prune', ['--model' => [ToolCall::class]]))
+        ->toThrow(InvalidArgumentException::class, 'umpire.audit.retention_days')
+        ->and(ToolCall::query()->count())->toBe(1);
+})->with([
+    'a word' => ['ninety'],
+    'an empty string' => [''],
+    'a decimal string' => ['9.5'],
+    'a signed string' => ['-5'],
+    'a padded string' => [' 90'],
+    'a float' => [9.5],
+]);
 
 it('keeps every row when the retention is null', function (): void {
     config(['umpire.audit.retention_days' => null]);

@@ -43,19 +43,22 @@ class ToolCall extends Model
     }
 
     /**
-     * Rows older than umpire.audit.retention_days, or none when it is null.
+     * Rows older than umpire.audit.retention_days, or none when it is null. A string of digits
+     * counts as the integer it spells, since env() returns strings; any other value throws.
      *
      * @return Builder<static>
      */
     public function prunable(): Builder
     {
-        if (Config::get('umpire.audit.retention_days') === null) {
+        $days = Config::get('umpire.audit.retention_days');
+
+        if ($days === null) {
             return static::query()->whereRaw('1 = 0');
         }
 
-        $cutoff = Carbon::now()->subDays(Config::integer('umpire.audit.retention_days'));
+        $days = is_string($days) && ctype_digit($days) ? (int) $days : Config::integer('umpire.audit.retention_days');
 
-        return static::query()->where('created_at', '<', $cutoff);
+        return static::query()->where('created_at', '<', Carbon::now()->subDays($days));
     }
 
     /**
