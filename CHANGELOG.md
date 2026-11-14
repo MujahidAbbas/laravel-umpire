@@ -1,6 +1,8 @@
 # Release Notes
 
-## [Unreleased](https://github.com/MujahidAbbas/laravel-umpire/compare/v1.1.1...main)
+## [Unreleased](https://github.com/MujahidAbbas/laravel-umpire/compare/v1.1.2...main)
+
+## [v1.1.2](https://github.com/MujahidAbbas/laravel-umpire/compare/v1.1.1...v1.1.2) - 2026-11-15
 
 - `mcp:purge-clients --unused` now skips a client with a login in progress: one that holds an authorization code that is neither revoked nor expired. Until now it deleted the client and the code, and that login failed when the client exchanged the code for a token. The listing and the delete both check, so the purge deletes fewer clients than before, never more. A skipped client is listed again once its code has expired (ten minutes in Passport) if the login was abandoned. The line printed for clients kept after the listing now reads "received an access token or started a login after the listing".
 - `mcp:purge-clients` prints a client's name as plain text: control characters are removed and console tags are escaped. The name comes from laravel/mcp's unauthenticated registration route, and one holding escape sequences or tags such as `<fg=red>` or `<href=...>` could recolor the listing, move the cursor or plant a link in the terminal or in a log written with `appendOutputTo()`. It never changed which clients were deleted.
