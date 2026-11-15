@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\MassPrunable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
+use InvalidArgumentException;
 
 /**
  * One audited tool call. model:prune only discovers app/Models, so prune it with
@@ -44,7 +45,8 @@ class ToolCall extends Model
 
     /**
      * Rows older than umpire.audit.retention_days, or none when it is null. A string of digits
-     * counts as the integer it spells, since env() returns strings; any other value throws.
+     * counts as the integer it spells, since env() returns strings; any other value throws, and
+     * so does a negative integer, whose cutoff would lie in the future and match every row.
      *
      * @return Builder<static>
      */
@@ -57,6 +59,10 @@ class ToolCall extends Model
         }
 
         $days = is_string($days) && ctype_digit($days) ? (int) $days : Config::integer('umpire.audit.retention_days');
+
+        if ($days < 0) {
+            throw new InvalidArgumentException("Configuration value for key [umpire.audit.retention_days] must not be negative, {$days} given.");
+        }
 
         return static::query()->where('created_at', '<', Carbon::now()->subDays($days));
     }

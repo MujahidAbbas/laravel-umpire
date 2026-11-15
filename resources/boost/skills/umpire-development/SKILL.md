@@ -81,7 +81,7 @@ use MujahidAbbas\Umpire\Models\ToolCall;
 ToolCall::query()->where('tool', 'issue-refund-tool')->where('created_at', '>=', now()->subDay())->get();
 ```
 
-- Retention: `umpire.audit.retention_days` (90; `null` keeps every row; an integer or a string of digits, so `env()` works). Schedule `Schedule::command('model:prune', ['--model' => [ToolCall::class]])->daily();`. `--model` limits pruning to the listed classes, so list the app's own prunable models in the same array.
+- Retention: `umpire.audit.retention_days` (90; `null` keeps every row; an integer of zero or more or a string of digits, so `env()` works; a negative integer makes `model:prune` fail, it does not mean forever). Schedule `Schedule::command('model:prune', ['--model' => [ToolCall::class]])->daily();`. `--model` limits pruning to the listed classes, so list the app's own prunable models in the same array.
 - Tenant: `Umpire::resolveTenantUsing(fn (ToolInvoked|ToolFailed $event) => $event->user?->team_id);` in a service provider's `boot()`. The value is stored as a string.
 - MySQL's `json` column does not keep the key order of `arguments`.
 

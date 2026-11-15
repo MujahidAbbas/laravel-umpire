@@ -293,8 +293,9 @@ Schedule::command('model:prune', ['--model' => [ToolCall::class]])->daily();
 
 `--model` limits pruning to the classes you list, so if you already schedule `model:prune` for
 your own models, add them to the same array. Rows older than `retention_days` are deleted; set
-it to `null` to keep every row. It takes an integer or a string of digits, so it can come from
-`env()`. With any other value `model:prune` fails and deletes nothing.
+it to `null` to keep every row. It takes an integer of zero or more, or a string of digits, so it
+can come from `env()`; `0` deletes every row already written. With any other value, a negative
+number such as `-1` included, `model:prune` fails and deletes nothing.
 
 ### Tenant
 

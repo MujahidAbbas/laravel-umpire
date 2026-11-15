@@ -231,7 +231,7 @@ it('prunes rows older than the retention with model:prune --model', function (in
     'a string of digits, as env() returns' => ['90'],
 ]);
 
-it('refuses a retention that is not a whole number of days and prunes nothing', function (mixed $days): void {
+it('refuses a retention that is negative or not a whole number of days and prunes nothing', function (mixed $days): void {
     config(['umpire.audit.retention_days' => $days]);
 
     $this->travelTo(now()->subYears(3));
@@ -248,6 +248,23 @@ it('refuses a retention that is not a whole number of days and prunes nothing', 
     'a signed string' => ['-5'],
     'a padded string' => [' 90'],
     'a float' => [9.5],
+    'a negative integer' => [-5],
+    'minus one, which does not mean forever' => [-1],
+]);
+
+it('prunes every row already written when the retention is zero', function (int|string $days): void {
+    config(['umpire.audit.retention_days' => $days]);
+
+    $this->travelTo(now()->subHour());
+    HelpdeskServer::tool(LookupTicketTool::class);
+    $this->travelBack();
+
+    $this->artisan('model:prune', ['--model' => [ToolCall::class]])->assertSuccessful();
+
+    expect(ToolCall::query()->count())->toBe(0);
+})->with([
+    'an integer' => [0],
+    'a string, as env() returns' => ['0'],
 ]);
 
 it('keeps every row when the retention is null', function (): void {

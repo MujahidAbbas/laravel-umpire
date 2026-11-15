@@ -38,7 +38,7 @@ return [
     | with the redacted arguments and the exception class, never its message.
     | Publish the migration with the "umpire-migrations" tag. Old rows are
     | removed by "model:prune --model=MujahidAbbas\Umpire\Models\ToolCall";
-    | a retention of null keeps every row.
+    | a retention of null keeps every row, and a negative one is refused.
     |
     */
 

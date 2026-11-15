@@ -2,6 +2,8 @@
 
 ## [Unreleased](https://github.com/MujahidAbbas/laravel-umpire/compare/v1.1.2...main)
 
+- A negative integer in `umpire.audit.retention_days` now makes `model:prune` fail and delete nothing. Until now it put the cutoff in the future, so a value such as `-1` deleted every audit row. `null` keeps every row, and `0` still deletes every row already written.
+
 ## [v1.1.2](https://github.com/MujahidAbbas/laravel-umpire/compare/v1.1.1...v1.1.2) - 2026-11-15
 
 - `mcp:purge-clients --unused` now skips a client with a login in progress: one that holds an authorization code that is neither revoked nor expired. Until now it deleted the client and the code, and that login failed when the client exchanged the code for a token. The listing and the delete both check, so the purge deletes fewer clients than before, never more. A skipped client is listed again once its code has expired (ten minutes in Passport) if the login was abandoned. The line printed for clients kept after the listing now reads "received an access token or started a login after the listing".
