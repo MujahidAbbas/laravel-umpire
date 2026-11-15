@@ -1,6 +1,8 @@
 # Release Notes
 
-## [Unreleased](https://github.com/MujahidAbbas/laravel-umpire/compare/v1.1.2...main)
+## [Unreleased](https://github.com/MujahidAbbas/laravel-umpire/compare/v1.1.3...main)
+
+## [v1.1.3](https://github.com/MujahidAbbas/laravel-umpire/compare/v1.1.2...v1.1.3) - 2026-11-15
 
 - A negative integer in `umpire.audit.retention_days` now makes `model:prune` fail and delete nothing. Until now it put the cutoff in the future, so a value such as `-1` deleted every audit row. `null` keeps every row, and `0` still deletes every row already written.
 
